@@ -1,0 +1,39 @@
+# Copy to ~/.dbt/profiles.yml and fill in your credentials.
+# Do NOT commit your real profiles.yml.
+
+pix_observatory:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: DEVELOPER
+      database: PIX_OBSERVATORY_DEV
+      warehouse: COMPUTE_WH
+      schema: "dbt_{{ env_var('USER') }}"
+      threads: 4
+      client_session_keep_alive: false
+
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: CI
+      database: PIX_OBSERVATORY_CI
+      warehouse: COMPUTE_WH
+      schema: "ci_{{ env_var('GITHUB_RUN_ID', 'local') }}"
+      threads: 8
+
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: ANALYTICS
+      database: PIX_OBSERVATORY_PROD
+      warehouse: COMPUTE_WH
+      schema: marts
+      threads: 8

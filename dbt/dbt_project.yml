@@ -1,0 +1,55 @@
+name: 'pix_observatory'
+version: '0.1.0'
+config-version: 2
+
+profile: 'pix_observatory'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Layered materialization strategy
+# bronze: raw ingested data (views over external tables / Snowpipe targets)
+# silver: staging + intermediate (cleaned, conformed)
+# gold:   marts in three flavors (Kimball, Data Vault, OBT)
+models:
+  pix_observatory:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      kimball:
+        +materialized: table
+        +schema: marts_kimball
+        +tags: ["kimball", "gold"]
+      data_vault:
+        +materialized: incremental
+        +schema: marts_data_vault
+        +tags: ["data_vault", "gold"]
+        +on_schema_change: "append_new_columns"
+      obt:
+        +materialized: table
+        +schema: marts_obt
+        +tags: ["obt", "gold"]
+
+snapshots:
+  pix_observatory:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: updated_at
+
+seeds:
+  pix_observatory:
+    +schema: seeds
+
+vars:
+  start_date: '2020-11-16'   # PIX launch date
