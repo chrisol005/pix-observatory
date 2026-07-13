@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIX Observatory — Mapa do Projeto (dbt + Snowflake)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#30363d;
+    --txt:#e6edf3; --muted:#9da7b3; --dbt:#ff694a; --snow:#29b5e8;
+    --green:#3fb950; --amber:#d29922; --purple:#a371f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55;font-size:15px}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.5px}
+  .sub{color:var(--muted);font-size:16px;margin-bottom:6px}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;
+    border:1px solid var(--line);color:var(--muted);margin:2px 4px 2px 0}
+  .tag.dbt{color:var(--dbt);border-color:var(--dbt)}
+  .tag.snow{color:var(--snow);border-color:var(--snow)}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 8px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  @media(max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
+  code{background:#0b0f14;border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;font-size:13px;color:#cdd9e5}
+  .muted{color:var(--muted)}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:3px 0}
+  .flow{display:flex;flex-direction:column;gap:0;align-items:center;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  .box{border:1px solid var(--line);background:var(--panel2);border-radius:9px;
+    padding:10px 14px;text-align:center;min-width:190px}
+  .box.dbt{border-color:var(--dbt)}
+  .box.snow{border-color:var(--snow)}
+  .box b{display:block;font-size:14px}
+  .box small{color:var(--muted)}
+  .arrow{color:var(--muted);font-size:18px;line-height:1;margin:5px 0}
+  .row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px;
+    text-transform:uppercase;letter-spacing:.4px}
+  .b-dbt{background:rgba(255,105,74,.15);color:var(--dbt)}
+  .b-snow{background:rgba(41,181,232,.15);color:var(--snow)}
+  .b-reuse{background:rgba(63,185,80,.15);color:var(--green)}
+  .week{border-left:3px solid var(--line);padding-left:16px;margin:16px 0}
+  .week.w1{border-color:var(--snow)} .week.w2{border-color:var(--dbt)}
+  .week.w3{border-color:var(--dbt)} .week.w4{border-color:var(--purple)}
+  .week h3{margin-top:0}
+  .del{color:var(--muted);text-decoration:line-through}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600}
+  .star{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+    white-space:pre;color:#cdd9e5;overflow-x:auto}
+  .out{opacity:.65}
+  .pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:6px;
+    background:var(--panel2);border:1px solid var(--line);margin:2px 3px 2px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>PIX Observatory — Mapa do Projeto</h1>
+  <div class="sub">Escopo reelaborado · foco em <b style="color:var(--dbt)">dbt</b> (prioridade 1)
+    e <b style="color:var(--snow)">Snowflake</b> (prioridade 2)</div>
+  <div>
+    <span class="tag dbt">dbt Core</span>
+    <span class="tag snow">Snowflake</span>
+    <span class="tag">Kimball star schema</span>
+    <span class="tag">~4 semanas</span>
+    <span class="tag">~US$15/mês</span>
+    <span class="tag">100% dados públicos/sintéticos</span>
+  </div>
+
+  <div class="panel">
+    <b>A ideia em uma frase:</b> aproveitar a ingestão Python já construída para
+    aterrissar dados no <b style="color:var(--snow)">Snowflake</b> e usar
+    <b style="color:var(--dbt)">dbt</b> para transformá-los em um star schema
+    Kimball testado e documentado — indo <i>fundo</i> nas duas ferramentas mais
+    pedidas nas vagas-alvo, em vez de amplo em muitas.
+  </div>
+
+  <!-- ARQUITETURA -->
+  <h2>1 · Arquitetura enxuta</h2>
+  <div class="panel">
+    <div class="flow">
+      <div class="row">
+        <div class="box"><b>Bacen API</b><small>estatísticas OData</small></div>
+        <div class="box"><b>Synthetic Generator</b><small>transações Faker</small></div>
+      </div>
+      <div class="badge b-reuse" style="margin:8px 0">já construído · Python</div>
+      <div class="arrow">▼</div>
+      <div class="box"><b>S3 raw</b><small>Parquet · dt=YYYY-MM-DD</small></div>
+      <div class="arrow">▼</div>
+      <div class="box snow"><b>External Stage + Snowpipe</b><small>storage integration · auto-ingest</small></div>
+      <div class="badge b-snow" style="margin:8px 0">Snowflake</div>
+      <div class="arrow">▼</div>
+      <div class="box snow"><b>RAW (bronze)</b><small>schema no Snowflake</small></div>
+      <div class="arrow">▼ &nbsp; dbt</div>
+      <div class="row">
+        <div class="box dbt"><b>STAGING</b><small>stg_* · views</small></div>
+        <div class="arrow" style="align-self:center">→</div>
+        <div class="box dbt"><b>INTERMEDIATE</b><small>int_* · ephemeral</small></div>
+        <div class="arrow" style="align-self:center">→</div>
+        <div class="box dbt"><b>MARTS_KIMBALL</b><small>fato + dims · incremental</small></div>
+      </div>
+      <div class="badge b-dbt" style="margin:8px 0">dbt · + snapshots SCD2 · seeds · tests · macros · exposures</div>
+      <div class="arrow">▼</div>
+      <div class="row">
+        <div class="box"><b>dbt docs</b><small>lineage · GitHub Pages</small></div>
+        <div class="box"><b>Streamlit</b><small>dashboard leve</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- O QUE MUDOU -->
+  <h2>2 · O que mudou no escopo</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h3 style="color:var(--green)">✓ Fica (com profundidade)</h3>
+      <p><span class="badge b-snow">Snowflake</span></p>
+      <ul>
+        <li>Warehouses (XS) + auto-suspend/resume</li>
+        <li>RBAC (DEVELOPER / CI / ANALYST)</li>
+        <li>Storage integration + external stage + Snowpipe</li>
+        <li>Resource monitor (controle de custo)</li>
+        <li>Zero-copy clone p/ CI · Time Travel</li>
+      </ul>
+      <p><span class="badge b-dbt">dbt</span></p>
+      <ul>
+        <li>sources + freshness</li>
+        <li>staging / intermediate / marts</li>
+        <li>snapshots (SCD2) · seeds · incremental</li>
+        <li>testes genéricos + customizados · macros · packages</li>
+        <li>exposures · dbt docs no GitHub Pages</li>
+      </ul>
+      <p><span class="badge b-reuse">reaproveitado</span> ingestão Python (Bacen + sintético)</p>
+    </div>
+    <div class="panel out">
+      <h3 class="muted">✗ Sai do núcleo → stretch / satélite</h3>
+      <ul>
+        <li class="del">AWS Glue / PySpark</li>
+        <li class="del">Apache Airflow (orquestração)</li>
+        <li class="del">ML — Prophet / MLflow</li>
+        <li class="del">Metabase</li>
+        <li class="del">Terraform (IaC)</li>
+        <li class="del">Data Vault 2.0</li>
+        <li class="del">One Big Table (OBT)</li>
+        <li class="del">Kafka / streaming</li>
+      </ul>
+      <p class="muted" style="font-size:13px">Registrado em <code>ADR-007</code>.
+      Nada é jogado fora: viram roadmap futuro / projetos-satélite. O OBT e
+      Streams+Tasks do Snowflake são os stretch mais naturais.</p>
+    </div>
+  </div>
+
+  <!-- ROADMAP -->
+  <h2>3 · Roadmap — 4 semanas</h2>
+
+  <div class="week w1">
+    <h3><span class="badge b-snow">Semana 1</span> Snowflake foundation + landing</h3>
+    <p class="muted">Meta: dados brutos no Snowflake, plataforma configurada.</p>
+    <ul>
+      <li>Conta trial · DBs DEV/PROD · warehouse XS · RBAC · resource monitor</li>
+      <li>S3 raw · storage integration · external stage · <b>Snowpipe</b> → schema RAW</li>
+    </ul>
+    <p class="muted">Entregável: <code>SELECT count(*) FROM raw.bacen_pix</code> retorna linhas via Snowpipe.</p>
+  </div>
+
+  <div class="week w2">
+    <h3><span class="badge b-dbt">Semana 2</span> dbt foundation: sources → staging → intermediate</h3>
+    <p class="muted">Meta: camadas base verdes em <code>dbt build</code>, docs navegáveis.</p>
+    <ul>
+      <li><code>dbt init</code> · profiles dev/ci · packages (dbt_utils, dbt_expectations, codegen)</li>
+      <li>sources.yml + freshness · staging (views) · intermediate (ephemeral) · 1º macro</li>
+      <li>testes genéricos · <code>dbt docs generate/serve</code></li>
+    </ul>
+    <p class="muted">Entregável: <code>dbt build --target dev</code> verde + lineage no dbt docs.</p>
+  </div>
+
+  <div class="week w3">
+    <h3><span class="badge b-dbt">Semana 3</span> Marts Kimball (star schema)</h3>
+    <p class="muted">Meta: star schema completo, incremental, com SCD2 nativo.</p>
+    <ul>
+      <li><code>dim_tempo</code> (seed) · <code>dim_instituicao</code> (snapshot SCD2) · demais dims</li>
+      <li><code>fct_transacao_pix</code> incremental (merge) · testes de relationships · exposure</li>
+    </ul>
+    <p class="muted">Entregável: lineage fato→dims + diagrama do star schema no README.</p>
+  </div>
+
+  <div class="week w4">
+    <h3><span class="badge" style="background:rgba(163,113,247,.15);color:var(--purple)">Semana 4</span> Qualidade, CI/CD, docs, storytelling</h3>
+    <p class="muted">Meta: pipeline auto-defendido, docs públicos, portfólio apresentável.</p>
+    <ul>
+      <li>dbt_expectations + testes customizados (continuidade temporal, conservação de massa, valor&gt;0)</li>
+      <li>CI: <code>dbt build --target ci</code> em <b>zero-copy clone</b> · slim CI (<code>--defer --state</code>)</li>
+      <li>dbt docs no GitHub Pages · Streamlit leve · README "hero" · candidatar a 5 vagas</li>
+    </ul>
+    <p class="muted">Entregável: CI barra PR quebrado; dbt docs público; link do dashboard.</p>
+  </div>
+
+  <!-- STAR SCHEMA -->
+  <h2>4 · Modelagem Kimball (o alvo do dbt)</h2>
+  <div class="panel">
+<div class="star">                ┌──────────────┐
+                │  dim_tempo   │  (seed dbt)
+                └──────┬───────┘
+                       │
+┌────────────────┐     │      ┌────────────────┐
+│ dim_instituicao│     ▼      │ dim_tipo_chave │
+│  (SCD2 via     ├──► fct_ ◄──┤                │
+│   snapshot)    │  transacao └────────────────┘
+└────────────────┘   _pix
+                       ▲
+              ┌────────┴─────────┐
+        ┌───────────────┐  ┌──────────────────┐
+        │  dim_regiao   │  │dim_categoria_valor│
+        └───────────────┘  └──────────────────┘</div>
+    <table>
+      <tr><th>Objeto</th><th>Tipo dbt</th><th>Destaque</th></tr>
+      <tr><td><code>fct_transacao_pix</code></td><td>incremental (merge)</td><td>grain = transação; FKs testadas com <code>relationships</code></td></tr>
+      <tr><td><code>dim_instituicao</code></td><td>snapshot</td><td>SCD Type 2 nativo do dbt</td></tr>
+      <tr><td><code>dim_tempo</code></td><td>seed</td><td>calendário completo</td></tr>
+      <tr><td><code>dim_tipo_chave / dim_regiao / dim_categoria_valor</code></td><td>seed / staging</td><td><code>accepted_values</code></td></tr>
+    </table>
+    <p class="muted" style="font-size:13px">Por que só Kimball: é o vocabulário
+    dominante de BI/analytics engineering — maior retorno por hora de estudo.
+    Data Vault e OBT ficam como narrativa de trade-off em entrevista (e stretch).</p>
+  </div>
+
+  <!-- CHECKLIST FERRAMENTAS -->
+  <h2>5 · O que este projeto prova em entrevista</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h3 style="color:var(--dbt)">dbt</h3>
+      <span class="pill">estrutura em camadas</span>
+      <span class="pill">sources + freshness</span>
+      <span class="pill">materializações</span>
+      <span class="pill">incremental</span>
+      <span class="pill">snapshots SCD2</span>
+      <span class="pill">seeds</span>
+      <span class="pill">testes genéricos</span>
+      <span class="pill">testes customizados</span>
+      <span class="pill">macros</span>
+      <span class="pill">packages</span>
+      <span class="pill">exposures</span>
+      <span class="pill">docs + lineage</span>
+      <span class="pill">slim CI (defer/state)</span>
+    </div>
+    <div class="panel">
+      <h3 style="color:var(--snow)">Snowflake</h3>
+      <span class="pill">warehouses + auto-suspend</span>
+      <span class="pill">RBAC</span>
+      <span class="pill">storage integration</span>
+      <span class="pill">external stage</span>
+      <span class="pill">Snowpipe</span>
+      <span class="pill">resource monitor</span>
+      <span class="pill">zero-copy clone</span>
+      <span class="pill">Time Travel</span>
+      <span class="pill muted">stretch: Streams + Tasks</span>
+      <span class="pill muted">stretch: Python UDF</span>
+    </div>
+  </div>
+
+  <p class="muted" style="margin-top:34px;font-size:13px">
+    Documentos-fonte no repo: <code>docs/roadmap-4-semanas.md</code> ·
+    <code>docs/arquitetura.md</code> · <code>docs/modelagem-kimball.md</code> ·
+    <code>docs/decisoes-tecnicas.md</code> (ADR-007). Constraint mantida: nenhum
+    dado ou código do Itaú — tudo público/sintético.
+  </p>
+
+</div>
+</body>
+</html>

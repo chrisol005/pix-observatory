@@ -1,8 +1,12 @@
 # PIX Observatory
 
-> End-to-end data platform on the Brazilian PIX instant payments ecosystem.
-> Combines public Banco Central statistics with synthetic transaction data,
-> built on AWS + Snowflake with dbt, Airflow, and modern data engineering practices.
+> End-to-end analytics engineering project on the Brazilian PIX instant
+> payments ecosystem. Combines public Banco Central statistics with synthetic
+> transaction data, landed in **Snowflake** and transformed with **dbt** into a
+> tested, documented Kimball star schema.
+>
+> Deliberately focused on two tools — **dbt** and **Snowflake** — to go deep
+> instead of wide.
 
 [![CI](https://github.com/REPLACE_ME/pix-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/REPLACE_ME/pix-observatory/actions)
 [![dbt docs](https://img.shields.io/badge/dbt-docs-orange)](https://REPLACE_ME.github.io/pix-observatory/)
@@ -26,51 +30,48 @@ artifact and a demonstration of a modern data-engineering stack.
 
 ```
 Bacen API ──┐
-            ├─► S3 raw ──► AWS Glue (PySpark) ──► S3 processed ──► Snowpipe
-Synthetic ──┘                                                          │
-generator                                                              ▼
-                                                                  Snowflake
-                                                                  bronze
-                                                                     │
-                                                                  dbt│
-                                                                     ▼
-                                                              silver / gold
-                                                          (Kimball, Data Vault, OBT)
-                                                                     │
-                                                                     ▼
-                                                       Streamlit · Metabase · Prophet UDF
+            ├─► S3 raw ──► External Stage + Snowpipe ──► Snowflake RAW (bronze)
+Synthetic ──┘   (Parquet)      (auto-ingest)                     │
+generator                                                        │ dbt
+                                                                 ▼
+                                            STAGING ─► INTERMEDIATE ─► MARTS_KIMBALL
+                                            (views)    (ephemeral)    (star schema,
+                                                                       incremental,
+                                                                       SCD2 snapshots)
+                                                                 │
+                                                                 ▼
+                                                    dbt docs (GH Pages) · Streamlit
 ```
 
-Orchestrated by Airflow. CI/CD on GitHub Actions. Quality enforced by Great
-Expectations + dbt tests. See [`docs/arquitetura.md`](docs/arquitetura.md) for
-the full diagram and decisions.
+CI/CD on GitHub Actions (dbt build in an isolated Snowflake env via zero-copy
+clone, slim CI with `--defer --state`). Quality enforced by dbt tests +
+dbt_expectations. See [`docs/arquitetura.md`](docs/arquitetura.md) for the full
+diagram and decisions.
 
 ## Stack
 
+**Focus tools in bold.**
+
 | Layer | Tool |
 |---|---|
-| Ingestion | Python (httpx, pydantic), Faker, AWS Lambda |
+| Ingestion (reused) | Python (httpx, pydantic), Faker |
 | Storage (raw) | Amazon S3 (Parquet, partitioned) |
-| Processing | AWS Glue (PySpark) |
-| Warehouse | Snowflake (Snowpipe, Streams, Tasks, Python UDFs) |
-| Transformation | dbt Core |
-| Orchestration | Apache Airflow (Astro CLI local / MWAA) |
-| Quality | Great Expectations, dbt tests |
-| ML | Prophet, MLflow |
-| Serving | Streamlit, Metabase |
-| CI/CD | GitHub Actions |
-| IaC (stretch) | Terraform |
+| Warehouse | **Snowflake** (storage integration, external stage, Snowpipe, RBAC, warehouses, resource monitor, zero-copy clone, Time Travel) |
+| Transformation | **dbt Core** (sources+freshness, staging/intermediate/marts, snapshots SCD2, seeds, incremental, tests, macros, packages, exposures, docs) |
+| Quality | dbt tests, dbt_expectations |
+| Serving | dbt docs (GitHub Pages), Streamlit |
+| CI/CD | GitHub Actions (slim CI, defer/state) |
 
-## Three modeling approaches, one source of truth
+Out of scope (see [ADR-007](docs/decisoes-tecnicas.md)): AWS Glue/PySpark,
+Airflow, ML (Prophet/MLflow), Metabase, Terraform, Data Vault/OBT — kept as
+future *stretch* / satellite projects.
 
-The same transactional data is materialized into three parallel mart schemas:
+## Modeling — Kimball star schema
 
-- `marts.kimball.*` — classic star schema with fact + conformed dimensions and SCD2 snapshots
-- `marts.data_vault.*` — hubs / links / satellites following Data Vault 2.0
-- `marts.obt.*` — one big table, denormalized for ML feature stores and ad-hoc exploration
-
-Each is benchmarked on query latency, storage cost, schema-evolution friction,
-and auditability. See [`docs/modelagem-comparativa.md`](docs/modelagem-comparativa.md).
+A single dimensional model, done with depth: `fct_transacao_pix` (transaction
+grain, incremental) surrounded by conformed dimensions, with `dim_instituicao`
+versioned as SCD Type 2 via a dbt snapshot and `dim_tempo` built from a seed.
+See [`docs/modelagem-kimball.md`](docs/modelagem-kimball.md).
 
 ## Quick start
 
@@ -81,31 +82,31 @@ cd pix-observatory
 uv sync                              # or: pip install -e ".[dev]"
 pre-commit install
 
-# Spin up local stack
-docker-compose up -d                 # Airflow + Metabase
-
 # Configure credentials (see .env.example)
 cp .env.example .env
-# fill in SNOWFLAKE_*, AWS_*, etc.
+# fill in SNOWFLAKE_*, AWS_* (S3 raw bucket)
 
-# Run dbt against your dev schema
-cd dbt && dbt build --target dev
+# Land data into Snowflake RAW (S3 + Snowpipe already configured), then:
+cd dbt
+dbt deps
+dbt build --target dev               # staging → intermediate → marts + tests
+dbt docs generate && dbt docs serve  # lineage + catalog
 ```
 
 ## Repository layout
 
 ```
 pix-observatory/
-├── ingestion/          # Bacen client + synthetic generator
-├── glue/               # PySpark jobs for AWS Glue
-├── airflow/dags/       # orchestration
-├── dbt/                # models (staging, intermediate, marts × 3)
-├── great_expectations/ # bronze contracts
-├── ml/                 # Prophet forecast + MLflow
-├── streamlit_app/      # public dashboard
-├── infra/terraform/    # IaC (stretch)
-└── docs/               # architecture, ADRs, modeling comparison
+├── ingestion/          # Bacen client + synthetic generator (reused)
+├── snowflake/          # DDL: warehouses, RBAC, stage, Snowpipe, resource monitor
+├── dbt/                # models (staging, intermediate, marts_kimball), snapshots, seeds, macros, tests
+├── streamlit_app/      # light dashboard
+└── docs/               # architecture, ADRs, Kimball modeling, 4-week roadmap
 ```
+
+> Legacy dirs (`glue/`, `airflow/`, `ml/`, `infra/terraform/`,
+> `great_expectations/`) belong to the earlier wide-scope plan and are kept only
+> for reference / future stretch work.
 
 ## Data sources
 
@@ -119,16 +120,14 @@ pix-observatory/
 
 ## Project status
 
-Actively under development. Component checklist:
+Actively under development — 4-week focused plan (see
+[`docs/roadmap-4-semanas.md`](docs/roadmap-4-semanas.md)):
 
-- [ ] Ingestion — Bacen client + synthetic generator
-- [ ] Snowflake + dbt foundations
-- [ ] Airflow + Glue orchestration
-- [ ] Kimball modeling
-- [ ] Data Vault + OBT modeling
-- [ ] Data quality + CI/CD
-- [ ] ML forecast + serving
-- [ ] Documentation polish
+- [x] Ingestion — Bacen client + synthetic generator (reused)
+- [ ] Week 1 — Snowflake foundation + Snowpipe landing
+- [ ] Week 2 — dbt foundation (sources, staging, intermediate)
+- [ ] Week 3 — Kimball star schema (fact, dims, SCD2 snapshot, incremental)
+- [ ] Week 4 — Quality, CI/CD, dbt docs on GitHub Pages, dashboard
 
 ## License
 

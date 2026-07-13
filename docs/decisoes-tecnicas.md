@@ -67,18 +67,22 @@ do Bacen (Faker + numpy, determinístico via seed).
 
 ---
 
-## ADR-004 — Três modelagens em paralelo
+## ADR-004 — Três modelagens em paralelo — REVISADO (ver ADR-007)
 
-**Contexto**: a escolha do modelo dimensional é uma decisão de arquitetura
-de alto impacto. Implementar uma só não permite comparação; implementar
-três sobre o mesmo dado torna os trade-offs explícitos e mensuráveis.
+**Contexto original**: a escolha do modelo dimensional é uma decisão de
+arquitetura de alto impacto. Implementar uma só não permite comparação;
+implementar três sobre o mesmo dado torna os trade-offs explícitos.
 
-**Decisão**: materializar gold em 3 schemas paralelos (Kimball, DV 2.0, OBT).
+**Decisão original**: materializar gold em 3 schemas paralelos (Kimball, DV, OBT).
+
+**Revisão (2026-07-13)**: substituída pela ADR-007. Escopo reduzido a **uma**
+modelagem — Kimball (star schema) — feita com profundidade (SCD2 via snapshot,
+fato incremental). OBT vira *stretch* opcional; Data Vault, projeto-satélite.
 
 **Consequências**:
-- ✓ Trade-offs comparáveis com números reais
-- ✓ Exercita decisão arquitetural com dados concretos
-- ✗ Mais código pra manter — mitigado por reuso da camada intermediate
+- ✓ Profundidade > amplitude: uma modelagem bem testada demonstra mais domínio
+- ✓ Cabe no prazo de 4 semanas com foco em dbt
+- ✗ Perde-se o benchmark comparativo — compensado por saber narrar os trade-offs
 
 ---
 
@@ -108,3 +112,42 @@ exercício de deploy gerenciado.
 - ✓ Reduz custo
 - ✓ Aprende Airflow puro
 - ✗ "Production-like" apenas na fase com MWAA — declarar no README
+
+> ⚠️ **Superado pela ADR-007**: Airflow saiu do escopo central. Orquestração
+> fica como *stretch*; o disparo do dbt no MVP é via CI / cron simples.
+
+---
+
+## ADR-007 — Refoco de escopo: dbt + Snowflake (2026-07-13)
+
+**Contexto**: o projeto original cobria muitas ferramentas em amplitude
+(Glue/PySpark, Airflow, ML com Prophet/MLflow, Metabase, Terraform, três
+modelagens dimensionais). As vagas-alvo de Data Engineer / Analytics Engineer
+pedem, com frequência muito maior, **dbt** e **Snowflake**. Amplitude excessiva
+diluía a profundidade justamente nas ferramentas de maior retorno.
+
+**Decisão**: refocar o projeto em duas ferramentas — **dbt (prioridade 1)** e
+**Snowflake (prioridade 2)** — e comprimir o prazo para ~4 semanas. A ingestão
+Python já construída é reaproveitada como fonte.
+
+**Sai do núcleo** (vira *stretch* ou projeto-satélite):
+- AWS Glue / PySpark — Snowpipe + dbt cobrem o volume do projeto.
+- Airflow — disparo via CI/cron no MVP (ADR-006 superado).
+- ML (Prophet/MLflow) — fora do foco das duas ferramentas.
+- Metabase — serving via dbt docs + Streamlit leve.
+- Terraform — bootstrap manual aceitável (ADR-005 reforçado).
+- Data Vault 2.0 e OBT — só Kimball no núcleo (ADR-004 revisado).
+
+**Entra com profundidade**:
+- dbt: sources+freshness, staging/intermediate/marts, snapshots (SCD2), seeds,
+  incremental, testes genéricos + customizados, macros, packages, exposures,
+  docs no GitHub Pages, CI com slim CI (defer/state).
+- Snowflake: warehouses + auto-suspend, RBAC, storage integration, external
+  stage, Snowpipe, resource monitor, zero-copy clone para CI, Time Travel.
+
+**Consequências**:
+- ✓ Profundidade demonstrável nas duas ferramentas mais pedidas
+- ✓ Menor custo (~US$15/mês) e prazo mais curto (4 semanas)
+- ✓ Aproveita 100% da ingestão já codada
+- ✗ Menos "amplitude" visível — mitigado listando os *stretch* como roadmap futuro
+- ✗ Não exercita orquestração/ML/Spark neste projeto — declarar no README

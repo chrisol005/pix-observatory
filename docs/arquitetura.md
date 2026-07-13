@@ -1,19 +1,22 @@
-# Arquitetura
+# Arquitetura (escopo enxuto: dbt + Snowflake)
 
 ## Visão geral
 
-PIX Observatory é uma plataforma de dados batch + micro-batch sobre o
-ecossistema PIX brasileiro. Funciona em três camadas lógicas — ingestão,
-armazenamento/transformação e consumo — orquestradas por Airflow e
-testadas continuamente por GitHub Actions.
+PIX Observatory é uma plataforma de dados batch sobre o ecossistema PIX
+brasileiro. O escopo foi deliberadamente enxugado para concentrar profundidade
+em **duas ferramentas**: **dbt** (transformação, prioridade 1) e **Snowflake**
+(data warehouse, prioridade 2). A ingestão em Python já existente alimenta o
+Snowflake; o dbt faz todo o trabalho analítico até um star schema Kimball
+testado e documentado.
+
+Três camadas lógicas: **ingestão → warehouse/transformação → consumo**.
 
 ## Diagrama lógico
 
 ```
 ┌─────────────────────────┐    ┌──────────────────────────┐
-│ Bacen API (estatísticas)│    │ Synthetic Generator (Py) │
+│ Bacen API (estatísticas)│    │ Synthetic Generator (Py) │   ◄── já construído
 └────────────┬────────────┘    └────────────┬─────────────┘
-             │                              │
              └──────────────┬───────────────┘
                             ▼
                   ┌───────────────────┐
@@ -21,127 +24,121 @@ testadas continuamente por GitHub Actions.
                   └─────────┬─────────┘
                             ▼
                   ┌───────────────────┐
-                  │ AWS Glue (PySpark)│  limpeza, dedupe, padronização
-                  └─────────┬─────────┘
-                            ▼
-                  ┌───────────────────┐
-                  │  S3 processed     │
-                  └─────────┬─────────┘
-                            ▼
-                  ┌───────────────────┐
-                  │   Snowpipe        │  auto-ingest
+                  │ External Stage    │  ◄── SNOWFLAKE
+                  │   + Snowpipe      │      (storage integration, auto-ingest)
                   └─────────┬─────────┘
                             ▼
         ┌───────────────────────────────────────┐
-        │           SNOWFLAKE                   │
-        │                                       │
-        │  bronze ── silver ── gold             │
-        │  (raw)    (dbt)    (dbt × 3 estilos) │
-        └─────────────┬─────────────────────────┘
-                      ▼
+        │              SNOWFLAKE                 │
+        │                                        │
+        │  RAW ──► STAGING ──► INTERMEDIATE ──► MARTS_KIMBALL
+        │ (bronze)  (dbt view) (dbt ephemeral)  (dbt table/incremental)
+        │                                        │
+        │  + SNAPSHOTS (SCD2)  + SEEDS (dim_tempo)
+        └─────────────────┬──────────────────────┘
+                          │  ◄── DBT: staging → intermediate → marts,
+                          │       snapshots, seeds, tests, macros, exposures
+                          ▼
         ┌─────────────────────────────┐
-        │ Exposures (dbt)             │
-        │  • Streamlit app            │
-        │  • Metabase dashboard       │
-        │  • Prophet forecast UDF     │
+        │ Consumo                     │
+        │  • dbt docs (lineage) — GH Pages
+        │  • Dashboard leve (Streamlit)
         └─────────────────────────────┘
 ```
 
 > Versão final em alta resolução: substituir este ASCII por export do
-> Excalidraw (`docs/img/arquitetura.png`) na semana 8.
+> Excalidraw (`docs/img/arquitetura.png`) na semana 4.
 
 ## Componentes
 
-### Ingestão
+### Ingestão (reaproveitada — Python)
 
-- **`ingestion/bacen/`** — cliente da API Olinda do Banco Central. Faz
-  paginação OData, valida com Pydantic e grava em Parquet no S3.
+- **`ingestion/bacen/`** — cliente da API Olinda do Banco Central. Paginação
+  OData, validação com Pydantic, grava Parquet no S3.
 - **`ingestion/synthetic_generator/`** — gera transações PIX individuais
-  calibradas pelas distribuições reais do Bacen (volume diário, mix de
-  tipos de chave, sazonalidade horária, distribuição de valores).
-  Determinístico via seed para reproducibilidade.
+  calibradas pelas distribuições reais do Bacen (volume diário, mix de tipos de
+  chave, sazonalidade horária, distribuição de valores). Determinístico via seed.
 
-### Storage (raw + processed)
+Nada muda aqui: é a fonte dos dados. O foco do projeto está a jusante.
+
+### Storage (raw) — S3
 
 - **S3 raw**: `s3://pix-observatory-raw/{source}/dt=YYYY-MM-DD/*.parquet`
-- **S3 processed**: dataset limpo e padronizado, pronto para Snowpipe.
-- Particionamento por data; compressão Snappy; arquivos de ~128 MB.
+- Particionamento por data; compressão Snappy.
+- Único componente AWS mantido — mínimo necessário para alimentar o Snowpipe.
 
-### Processamento distribuído
+### Data Warehouse — Snowflake (prioridade 2)
 
-- **AWS Glue Job (PySpark)** — uma única DAG processa backfills históricos.
-  Workflow normal usa Snowpipe direto; Glue só entra para reprocessamentos.
-- Justificativa: para volumes diários, Snowpipe + dbt resolvem com menor
-  custo. Spark fica reservado para casos onde realmente vale.
-
-### Data Warehouse — Snowflake
+Ingestão para o Snowflake via **storage integration + external stage +
+Snowpipe** (auto-ingest do S3). Nada de Glue/PySpark: para o volume do projeto,
+Snowpipe + dbt resolvem com menor custo e mais foco.
 
 ```
 PIX_OBSERVATORY_DEV / PROD
-├── RAW.*                  ← targets do Snowpipe
-├── STAGING.stg_*          ← views dbt
-├── INTERMEDIATE.int_*     ← ephemeral
-├── MARTS_KIMBALL.*        ← star schema
-├── MARTS_DATA_VAULT.*     ← hubs / links / satellites
-├── MARTS_OBT.*            ← One Big Table
-└── SNAPSHOTS.*            ← dbt snapshots (SCD2)
+├── RAW.*                 ← targets do Snowpipe (bronze)
+├── STAGING.stg_*         ← views dbt
+├── INTERMEDIATE.int_*    ← ephemeral dbt
+├── MARTS_KIMBALL.*       ← star schema (fato + dims)
+└── SNAPSHOTS.*           ← dbt snapshots (SCD2)
 ```
 
 RBAC:
 - `DEVELOPER` — read/write em DEV
-- `CI` — read/write em CI (schemas efêmeros por GITHUB_RUN_ID)
-- `ANALYTICS` — read em PROD, write nas marts
+- `CI` — ambiente isolado (zero-copy clone ou schema por `GITHUB_RUN_ID`)
+- `ANALYST` — read em PROD
 
-### Transformação — dbt
+Recursos Snowflake exercitados: warehouses (XS, auto-suspend/resume), RBAC,
+storage integration, external stage, Snowpipe, resource monitor (custo),
+zero-copy clone (CI), Time Travel. *Stretch*: Streams + Tasks, Python UDF.
 
-- **staging** (views): renomeação, cast, conformação de tipos
-- **intermediate** (ephemeral): joins e enriquecimentos reusáveis
-- **marts**: três paradigmas paralelos (ver `modelagem-comparativa.md`)
-- **snapshots**: SCD Type 2 em `dim_instituicao`
+### Transformação — dbt (prioridade 1)
 
-### Orquestração — Airflow
+Coração do projeto. Segue as [best practices de estrutura do dbt](https://docs.getdbt.com/best-practices/how-we-structure/1-guide-overview):
 
-DAGs principais:
-- `ingest_bacen` — diária, busca dados novos do Bacen
-- `generate_synthetic` — diária, gera o lote sintético do dia
-- `transform_dbt` — sensor em S3 processed → `dbt build`
-- `ml_forecast` — semanal, retreina Prophet e registra no MLflow
-- `quality_checks` — diária, Great Expectations + alertas Slack
+- **staging** (`stg_*`, view): renomeação, cast, conformação de tipos.
+- **intermediate** (`int_*`, ephemeral): joins e enriquecimentos reusáveis.
+- **marts** (`MARTS_KIMBALL`, table/incremental): star schema Kimball.
+- **snapshots**: SCD Type 2 em `dim_instituicao`.
+- **seeds**: `dim_tempo` e tabelas de referência pequenas.
+
+Recursos dbt exercitados: sources + freshness, materializações (view / ephemeral
+/ table / incremental), testes genéricos (`not_null`, `unique`, `relationships`,
+`accepted_values`), testes singulares/customizados, macros, packages
+(`dbt_utils`, `dbt_expectations`, `codegen`), snapshots, seeds, exposures, e
+`dbt docs` (lineage) hospedado no GitHub Pages.
 
 ### Qualidade
 
-- **Great Expectations** valida contratos na bronze (schema, distribuições,
-  freshness máximo).
-- **dbt tests** genéricos (`not_null`, `unique`, `relationships`,
-  `accepted_values`) em toda staging e marts.
-- **Tests customizados**:
-  - continuidade temporal (sem buracos de dias)
-  - conservação de massa entre camadas
-  - sanity em métricas financeiras (valor > 0)
+- **dbt tests genéricos** em toda staging e marts.
+- **dbt_expectations** para distribuições e ranges na staging.
+- **Testes customizados**: continuidade temporal (sem buracos de dias),
+  conservação de massa entre camadas, sanity financeiro (`valor > 0`).
 
 ### CI/CD
 
-- PR → ruff, mypy, pytest, `dbt build` em schema CI temporário
-- Merge em main → deploy do dbt em PROD; upload do manifest.json para S3
-  (usado pelo slim CI dos próximos PRs).
+- PR → ruff, mypy, pytest, `dbt build --target ci` em **ambiente isolado**
+  (zero-copy clone ou schema temporário).
+- **Slim CI**: `--defer --state` contra o `manifest.json` de PROD.
+- Merge em `main` → `dbt build --target prod` + upload do manifest para S3.
 
 ### Serving
 
-- **Streamlit Cloud** — app público com forecast, ranking, drill-downs
-- **Metabase** (Docker) — dashboards para exploração ad-hoc
-- **Snowflake Python UDF** — modelo Prophet servido in-database e
-  consumido como model dbt
+- **dbt docs** — lineage e catálogo público via GitHub Pages.
+- **Dashboard leve** — Streamlit simples consumindo os marts Kimball (ou
+  consumo direto por SQL). Sem Metabase.
 
-## Decisões importantes
+## O que saiu do escopo (e por quê)
 
-Registradas em `docs/decisoes-tecnicas.md` no formato ADR.
+Ver `decisoes-tecnicas.md`, ADR-007. Em resumo: Glue/PySpark, Airflow,
+ML (Prophet/MLflow), Metabase, Terraform e as modelagens Data Vault/OBT foram
+removidos do núcleo para maximizar profundidade em dbt + Snowflake — as duas
+ferramentas mais demandadas nas vagas-alvo. Vários viram itens *stretch* ou
+projetos-satélite.
 
 ## Custos
 
-Orçamento mensal estimado: ~US$47, distribuído entre:
+Orçamento mensal estimado: **~US$15–17** (bem abaixo do teto de US$50):
 
-- Snowflake (pós-trial): ~US$15
-- AWS Glue: ~US$10
-- AWS MWAA (opcional): ~US$20
-- AWS S3 + Lambda: ~US$2
-- Streamlit Cloud: US$0 (tier gratuito)
+- Snowflake (pós-trial): ~US$15 (warehouse XS com auto-suspend agressivo)
+- AWS S3: ~US$1–2
+- GitHub Actions / GitHub Pages / Streamlit Cloud: US$0 (tiers gratuitos)
